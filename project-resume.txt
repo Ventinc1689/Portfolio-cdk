@@ -1,0 +1,64 @@
+﻿Name: Vincent Zhu
+Email: VincentZ2024@gmail.com 
+Phone Number: (917)-833-9598 
+LinkedIn: linkedin.com/in/vincent-zhu1689 
+Github: github.com/Ventinc1689
+University: University of Pittsburgh 
+Major: Computer Science
+Minor: Information Science
+Expected Graduation: May 2028
+
+
+Summary:
+Computer Science student passionate about cloud computing and AI.
+Experience with Python, JavaScript/Typescript, Java, HTML/CSS, Dart, SQL, and AWS services
+
+
+Skills:
+- Programming: Java, Python, JavaScript, Typescript, HTML, CSS, SQL, Dart, C
+- Cloud: AWS (S3, Lambda, EC2), basic Terraform
+- Tools: Git, Docker, VS Code, React, SpringBoot, Express, Tailwind CSS, Flask, React-Native, Supabase, Firebase, PostgreSQL, Flutter, Postman
+- Interests: Machine Learning, Serverless Architecture, Software Engineering
+
+
+Courseworks: Data Structures & Algorithms, Object-Oriented Programming, Computer Organization & Assembly Language Systems Software, Math in Machine Learning, Calculus, Discrete Math, Linear Algebra
+
+
+Experience:
+1. Treefficiency, Undergraduate Research Assistant (May 2025 - Aug 2025)
+* Architected a real-time appliance summary system using Flutter/Dart, providing users with interactive visualizations of appliance costs, energy emissions, and usage duration
+* Engineered backend services with Firebase, implementing data models to streamline data logging for usage time to calculate energy emission/cost
+* Implemented an appliance management interface, supporting CRUD functionalities and appliance reordering features
+* Integrated Firebase Auth to manage account credentials and synchronized user preferences
+
+
+2. Pitt Meals, Pitt CSC (Feb 2026 - April 2026)
+* Contribute to a new Pitt on-campus dining application, enabling Pitt students to track their daily dietary goals across on-campus dining halls
+* Architected Flask REST APIs to parse and filter 10k+ lines of nested JSON from the Dine on Campus API
+* Developed a responsive ReactJS/Tailwind CSS UI, improving navigation for 50+ daily menu items
+* Collaborating in agile sprint cycles using Git/GitHub for version control, and attending weekly standups
+
+
+3. Great China, Restaurant Work Experience (Aug 2020 - Aug 2024)
+* Delivered consistent customer service to up to 100+ guests daily in a fast-paced restaurant environment
+* Supervised and trained 3 new hires on service standards, daily task requirements, and menu knowledge
+
+
+Projects:
+1. XI11 | React TS, Express.js, Tailwind CSS, Supabase, PostgreSQL (May 2026 – Present)
+* Engineered a full-stack application allowing users to create, edit, and manage custom soccer player rankings
+* Implemented RESTful APIs with Express.js, featuring relational queries and filtering/sorting of players
+* Developed a fully responsive frontend that includes ranking options for multiple categories
+
+
+2. Fantasy Zone | Spring Boot, React JS, Tailwind CSS, PostgreSQL, Docker (Dec 2025 – Feb 2026)
+* Built a full-stack fantasy football analytics platform enabling users to explore and compare player/team statistics
+* Designed REST APIs powering dynamic searching, filtering, and sorting of the top 500 NFL players and all 32 teams
+* Developed a fully responsive frontend with features such as a side-by-side statistical comparison UI across players
+* Interactive player/team tables with individual summaries for each individual player and team
+
+
+Goals:
+* Seeking internships in cloud engineering or software development
+* Interested in building AI-powered applications
+* Want to learn more about infrastructure as code
