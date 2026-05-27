@@ -58,7 +58,8 @@ export class PortfolioCdkStack extends cdk.Stack {
       memorySize: 1024,                 
       environment: {
         TABLE_NAME: sessionTable.tableName,
-        KNOWLEDGE_BASE_ID: kb.knowledgeBaseId 
+        KNOWLEDGE_BASE_ID: kb.knowledgeBaseId,
+        LOGFIRE_TOKEN: process.env.LOGFIRE_TOKEN ?? ''
       },
       bundling: {
         assetExcludes: ['boto3', 'botocore', '*.pyc', '__pycache__'],

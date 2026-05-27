@@ -2,12 +2,16 @@ import json
 import boto3
 import os
 import re
+import logfire
 from pydantic import TypeAdapter
 from botocore.config import Config
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+
+logfire.configure(send_to_logfire='if-token-present')
+logfire.instrument_pydantic_ai()
 
 dynamodb = boto3.resource('dynamodb')
 TABLE_NAME = os.environ['TABLE_NAME']
@@ -30,7 +34,7 @@ agent = Agent(
     model=bedrock,
     tools=[duckduckgo_search_tool()],
     system_prompt=(
-        "You are a portfolio assistant for Vincent Zhu. Each user message will include a <resume_context> block with information retrieved from Vincent's resume specifically for that question. Always check the <resume_context> block first. If the context says NOT_FOUND or seems unrelated, check the chat history for follow-up context (e.g. they're asking for more details about a project you just discussed). Only use duckduckgo for web search when information is outside of resume context or questions you do not have answer to. Be friendly and concise. Do not preface answers with 'Based on Vincent's resume'."
+        "You are a portfolio assistant for Vincent Zhu. Answer user questions based on <resume_context> when dealing with resume information. Use available tools when information is outside of resume context or questions you do not have answer to. Be friendly and concise. Do not preface answers with 'Based on resume' or anything of that sort."
     )
 )
 
@@ -71,7 +75,7 @@ def query_knowledge_base(query_text: str) -> str:
             knowledgeBaseId=KNOWLEDGE_BASE_ID,
             retrievalQuery={'text': query_text},
             retrievalConfiguration={
-                'vectorSearchConfiguration': {'numberOfResults': 4}
+                'vectorSearchConfiguration': {'numberOfResults': 3}
             }
         )
         results = response.get('retrievalResults', [])
@@ -211,7 +215,6 @@ def lambda_handler(event, context):
                 'used_search': used_search, 
                 'debug_kb_chunks': relevant_chunks
             })
-            #'body': json.dumps({'answer': str(result.output), 'debug_kb_chunks': relevant_chunks})
         }
         
     except Exception as e:
