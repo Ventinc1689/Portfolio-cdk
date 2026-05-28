@@ -36,7 +36,7 @@ export class PortfolioCdkStack extends cdk.Stack {
       vectorType: bedrock.VectorType.BINARY
     });
 
-    const dataSource = new bedrock.S3DataSource(this, 'PortfolioDataSourcev2', {
+    const dataSource = new bedrock.S3DataSource(this, 'PortfolioDataSource-vz', {
       bucket: resumeBucket,
       knowledgeBase: kb,
       dataSourceName: 'vz-resume-s3-source',

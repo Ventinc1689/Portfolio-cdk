@@ -10,9 +10,13 @@ from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
+# Set up logfire
 logfire.configure(send_to_logfire='if-token-present')
 logfire.instrument_pydantic_ai()
 
+# ============================================
+# AWS clients
+# ============================================
 dynamodb = boto3.resource('dynamodb')
 TABLE_NAME = os.environ['TABLE_NAME']
 table = dynamodb.Table(TABLE_NAME)
@@ -24,7 +28,11 @@ config = Config(
     }
 )
 
-bedrock_agent_client = boto3.client('bedrock-agent-runtime', region_name='us-east-1', config=config)
+bedrock_agent_client = boto3.client(
+    'bedrock-agent-runtime', 
+    region_name='us-east-1', 
+    config=config
+)
 
 bedrock = BedrockConverseModel(
     'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
