@@ -27,6 +27,7 @@ config = Config(
     }
 )
 
+# Bedrock Agent Runtime client for knowledge base retrieval
 bedrock_agent_client = boto3.client(
     'bedrock-agent-runtime', 
     region_name='us-east-1', 
@@ -37,16 +38,16 @@ bedrock = BedrockConverseModel(
     'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
 )
 
-# Agent responsible for answering questions about the resume using retrieved context from the knowledge base
-resume_agent = Agent(
+# Agent responsible for orchestrating between resume search and web search based on the user's question
+agent = Agent(
     model = bedrock,
     system_prompt=(
-        "You are a portfolio assistant for Vincent Zhu. Your job is to answer questions about Vincent's resume, projects, skills, experience, education. Always call search_resume first to get accurate info from Vincent's resume."
+        "Your job is to determine which tool/agent to call based on the user's question. If the question is about Vincent's resume, experience, projects, skills, or education, call search_agent. For general knowledge questions, current events, or anything not related to Vincent's resume, call the search_web. Write a friendly, concise final answer for the user. Do not preface with 'Based on Vincent's resume' or anything of that sort"
     )
 )
 
-# Function to search the resume knowledge base using Bedrock Agent Runtime
-@resume_agent.tool
+# Tool to search the resume knowledge base using Bedrock Agent Runtime
+@agent.tool
 def search_resume(ctx: RunContext, query: str) -> str:
     """Search Vincent's resume knowledge base"""
 
@@ -55,6 +56,7 @@ def search_resume(ctx: RunContext, query: str) -> str:
         return "Knowledge base not configured"
     
     try:
+        # Search the knowledge base 
         response = bedrock_agent_client.retrieve(
             knowledgeBaseId=kb_id,
             retrievalQuery={'text': query},
@@ -63,11 +65,13 @@ def search_resume(ctx: RunContext, query: str) -> str:
             }
         )
 
+        # Extract and concatenate the retrieved text chunks to return as the answer
         results = response.get('retrievalResults', [])
 
         if not results:
             return "NOT_FOUND"
         
+        # Concatenate retrieved chunks with separators for readability. Adjust formatting as needed for the frontend display.
         chunks = [r['content']['text'] for r in results if 'content' in r]
         return "\n\n---\n\n".join(chunks)
     except Exception as e:
@@ -83,37 +87,22 @@ web_agent = Agent(
     )
 )
 
-# The main agent that routes between resume_agent and web_agent based on the user's question. It uses a system prompt to determine which tool to call, and is responsible for providing the final answer to the user.
-agent = Agent(
-    model = bedrock,
-    system_prompt=(
-        "Your job is to determine which tool/agent to call based on the user's question. If the question is about Vincent's resume, experience, projects, skills, or education, call the ask_resume_agent. For general knowledge questions, current events, or anything not related to Vincent's resume, call the ask_web_agent. Write a friendly, concise final answer for the user. Do not preface with 'Based on Vincent's resume' or anything of that sort"
-    )
-)
-
-# Calls resume agent
-@agent.tool
-async def ask_resume_agent(ctx: RunContext, query: str) -> str:
-    """Search Vincent's resume knowledge base"""
-
-    logfire.info(f"Invoking resume search for query: {query}")
-    result = await resume_agent.run(query)
-    return str(result.output)
-
 # Calls web agent
 @agent.tool
-async def ask_web_agent(ctx: RunContext, query: str) -> str:
+async def search_web(ctx: RunContext, query: str) -> str:
     """Search the web for general knowledge questions or current events"""
     
     logfire.info(f"Invoking web search for query: {query}")
     result = await web_agent.run(query)
     return str(result.output)
 
+# Retrieves current location
 @agent.tool
 def get_current_location(ctx: RunContext):
     """Example of a simple tool that returns Vincent's current location. In a real implementation, this could call an API or database to get dynamic information."""
     return "Pittsburgh, PA"
 
+# Retrieves current weather
 @agent.tool
 def get_weather(ctx: RunContext, location: str):    
     """Example of a simple tool that returns the current weather. In a real implementation, this could call a weather API to get dynamic information."""
@@ -153,6 +142,8 @@ messages_adapter = TypeAdapter(list[ModelMessage])
 
 # The main Lambda handler
 def lambda_handler(event, context):
+
+    # Set up CORS headers for API Gateway
     headers = {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
@@ -196,21 +187,24 @@ def lambda_handler(event, context):
         if not question:
             return {'statusCode': 400, 'headers': headers, 'body': json.dumps({'error': 'No question'})}
         
+        # Retrieve the conversation history
         history_string = get_chat(session_id)
         
+        # Validate and parse the history string into a list of ModelMessage objects
         try:
             history = messages_adapter.validate_json(history_string)
         except Exception as e:
             print(f"Schema mismatch detected, starting fresh: {e}")
             history = []
 
+        # Run the agent with the user's question and the conversation history, and log the execution in Logfire
         with logfire.span('agent_run', session_id=session_id, question=question):
             result = agent.run_sync(
                 user_prompt = question,
                 message_history = history
             )
-        logfire.force_flush()
 
+        # Save the full message history back to DynamoDB for this session
         full_history = result.all_messages_json().decode('utf-8')
 
         try:
@@ -221,6 +215,7 @@ def lambda_handler(event, context):
         except Exception as e:
             print(f"DB Save error: {e}")
 
+        # Analyze tool usage in the agent's response to provide additional info to the frontend
         used_kb = False
         used_search = False
         for msg in result.new_messages():
@@ -232,6 +227,7 @@ def lambda_handler(event, context):
                     elif 'web' in tool_name:
                         used_search = True
 
+        # Return the response with tool usage information
         return {
             'statusCode': 200,
             'headers': headers,
@@ -242,10 +238,10 @@ def lambda_handler(event, context):
             })
         }
         
+    # Catch any unexpected errors to prevent Lambda crashes and log them to Logfire
     except Exception as e:
         print(f"Lambda crash: {str(e)}")
         logfire.error(f"Lambda crash: {str(e)}")
-        logfire.force_flush()
         return {
             'statusCode': 500,
             'headers': headers,
