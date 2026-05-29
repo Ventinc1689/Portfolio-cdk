@@ -59,7 +59,7 @@ export class PortfolioCdkStack extends cdk.Stack {
       environment: {
         TABLE_NAME: sessionTable.tableName,
         KNOWLEDGE_BASE_ID: kb.knowledgeBaseId,
-        LOGFIRE_TOKEN: process.env.LOGFIRE_TOKEN ?? ''
+        LOGFIRE_TOKEN: process.env.LOGFIRE_TOKEN ?? 'pylf_v1_us_8R289MbYCrZWW7QG7Pq5mqq6FhcP106BZJxrQ8ywQBc0'
       },
       bundling: {
         assetExcludes: ['boto3', 'botocore', '*.pyc', '__pycache__'],

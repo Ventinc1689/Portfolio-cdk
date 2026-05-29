@@ -1,11 +1,10 @@
 import json
 import boto3
 import os
-import re
 import logfire
 from pydantic import TypeAdapter
 from botocore.config import Config
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models.bedrock import BedrockConverseModel
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
@@ -38,14 +37,89 @@ bedrock = BedrockConverseModel(
     'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
 )
 
-agent = Agent(
-    model=bedrock,
-    tools=[duckduckgo_search_tool()],
+# Agent responsible for answering questions about the resume using retrieved context from the knowledge base
+resume_agent = Agent(
+    model = bedrock,
     system_prompt=(
-        "You are a portfolio assistant for Vincent Zhu. Answer user questions based on <resume_context> when dealing with resume information. Use available tools when information is outside of resume context or questions you do not have answer to. Be friendly and concise. Do not preface answers with 'Based on resume' or anything of that sort."
+        "You are a portfolio assistant for Vincent Zhu. Your job is to answer questions about Vincent's resume, projects, skills, experience, education. Always call search_resume first to get accurate info from Vincent's resume."
     )
 )
 
+# Function to search the resume knowledge base using Bedrock Agent Runtime
+@resume_agent.tool
+def search_resume(ctx: RunContext, query: str) -> str:
+    """Search Vincent's resume knowledge base"""
+
+    kb_id = os.environ.get('KNOWLEDGE_BASE_ID', '')
+    if not kb_id:
+        return "Knowledge base not configured"
+    
+    try:
+        response = bedrock_agent_client.retrieve(
+            knowledgeBaseId=kb_id,
+            retrievalQuery={'text': query},
+            retrievalConfiguration={
+                'vectorSearchConfiguration': {'numberOfResults': 3}
+            }
+        )
+
+        results = response.get('retrievalResults', [])
+
+        if not results:
+            return "NOT_FOUND"
+        
+        chunks = [r['content']['text'] for r in results if 'content' in r]
+        return "\n\n---\n\n".join(chunks)
+    except Exception as e:
+        logfire.error(f"KB retrieval failed: {e}")
+        return f"Error retrieving from knowledge base: {e}"
+
+# Agent responsible for searching the web
+web_agent = Agent(
+    model = bedrock,
+    tools=[duckduckgo_search_tool()],
+    system_prompt=(
+        'Your job is to answer general knowledge questions, current events, or resume-unrelated information by searching the web. Provide concise, factual answers.'
+    )
+)
+
+# The main agent that routes between resume_agent and web_agent based on the user's question. It uses a system prompt to determine which tool to call, and is responsible for providing the final answer to the user.
+agent = Agent(
+    model = bedrock,
+    system_prompt=(
+        "Your job is to determine which tool/agent to call based on the user's question. If the question is about Vincent's resume, experience, projects, skills, or education, call the ask_resume_agent. For general knowledge questions, current events, or anything not related to Vincent's resume, call the ask_web_agent. Write a friendly, concise final answer for the user. Do not preface with 'Based on Vincent's resume' or anything of that sort"
+    )
+)
+
+# Calls resume agent
+@agent.tool
+async def ask_resume_agent(ctx: RunContext, query: str) -> str:
+    """Search Vincent's resume knowledge base"""
+
+    logfire.info(f"Invoking resume search for query: {query}")
+    result = await resume_agent.run(query)
+    return str(result.output)
+
+# Calls web agent
+@agent.tool
+async def ask_web_agent(ctx: RunContext, query: str) -> str:
+    """Search the web for general knowledge questions or current events"""
+    
+    logfire.info(f"Invoking web search for query: {query}")
+    result = await web_agent.run(query)
+    return str(result.output)
+
+@agent.tool
+def get_current_location(ctx: RunContext):
+    """Example of a simple tool that returns Vincent's current location. In a real implementation, this could call an API or database to get dynamic information."""
+    return "Pittsburgh, PA"
+
+@agent.tool
+def get_weather(ctx: RunContext, location: str):    
+    """Example of a simple tool that returns the current weather. In a real implementation, this could call a weather API to get dynamic information."""
+    return "Partly cloudy, 72°F"
+
+# Helper function to get chat history from DynamoDB
 def get_chat(session_id):
     try:
         response = table.get_item(Key={'sessionId': session_id})
@@ -55,6 +129,7 @@ def get_chat(session_id):
         print(f"Error reading DynamoDB: {e}")
     return "[]"
 
+# Helper function to extract display messages for the frontend, filtering out tool calls and other non-display content
 def extract_display_messages(history_string):
     try:
         history = json.loads(history_string)
@@ -73,33 +148,10 @@ def extract_display_messages(history_string):
         print(f"Error extracting display messages: {e}")
         return []
 
-def query_knowledge_base(query_text: str) -> str:
-    KNOWLEDGE_BASE_ID = os.environ.get('KNOWLEDGE_BASE_ID', '')
-
-    if not KNOWLEDGE_BASE_ID:
-        return "No resume context available."
-    try:
-        response = bedrock_agent_client.retrieve(
-            knowledgeBaseId=KNOWLEDGE_BASE_ID,
-            retrievalQuery={'text': query_text},
-            retrievalConfiguration={
-                'vectorSearchConfiguration': {'numberOfResults': 3}
-            }
-        )
-        results = response.get('retrievalResults', [])
-
-        if not results:
-            return "NOT_FOUND"
-        
-        chunks = [r['content']['text'] for r in results if 'content' in r]
-        return "\n\n---\n\n".join(chunks)
-    except Exception as e:
-        print(f"Error querying Bedrock KB: {e}")
-        return "Error fetching resume context."
-
 # Set up a reusable Pydantic TypeAdapter to handle history list parsing
 messages_adapter = TypeAdapter(list[ModelMessage])
 
+# The main Lambda handler
 def lambda_handler(event, context):
     headers = {
         'Content-Type': 'application/json',
@@ -114,6 +166,7 @@ def lambda_handler(event, context):
         except:
             body = {}
         
+        # Fetch session ID 
         session_id = body.get('sessionId', 'default-session')
 
         # Page refresh
@@ -147,86 +200,52 @@ def lambda_handler(event, context):
         
         try:
             history = messages_adapter.validate_json(history_string)
-        except Exception as parse_err:
-            print(f"Schema mismatch detected, starting fresh: {parse_err}")
+        except Exception as e:
+            print(f"Schema mismatch detected, starting fresh: {e}")
             history = []
-            
-        relevant_chunks = query_knowledge_base(question)
 
-        if relevant_chunks and relevant_chunks not in ("NOT_FOUND", "No resume context available.") and not relevant_chunks.startswith("Error"):
-            augmented_prompt = (
-                f"<resume_context>\n{relevant_chunks}\n</resume_context>\n\n"
-                f"User question: {question}"
+        with logfire.span('agent_run', session_id=session_id, question=question):
+            result = agent.run_sync(
+                user_prompt = question,
+                message_history = history
             )
-        else:
-            augmented_prompt = (
-                f"<resume_context>\nNo new context retrieved. Check chat history for follow-up context.\n</resume_context>\n\n"
-                f"User question: {question}"
-            )
-        
-        # Invoke the Agent
-        result = agent.run_sync(
-            user_prompt=augmented_prompt,
-            message_history=history,
-            deps=relevant_chunks,
-        )
+        logfire.force_flush()
 
-        raw_messages = json.loads(result.all_messages_json().decode('utf-8'))
-        cleaned_messages = []
-        
-        KEEP_PARTS = {'user-prompt', 'text'}
-
-        for msg in raw_messages:
-            if 'parts' in msg:
-                filtered_parts = [p for p in msg['parts'] if p.get('part_kind') in KEEP_PARTS]
-                if len(filtered_parts) > 0:
-                    msg['parts'] = filtered_parts
-                    cleaned_messages.append(msg)
-            else:
-                cleaned_messages.append(msg)
-
-        # Strip resume_context blocks from user prompts before saving
-        # This keeps DynamoDB history lean — context is re-retrieved fresh each turn
-        RESUME_CONTEXT_PATTERN = re.compile(
-            r'<resume_context>.*?</resume_context>\s*\n*User question:\s*',
-            flags=re.DOTALL
-        )
-
-        for msg in cleaned_messages:
-            if msg.get('kind') == 'request':
-                for part in msg.get('parts', []):
-                    if part.get('part_kind') == 'user-prompt':
-                        part['content'] = RESUME_CONTEXT_PATTERN.sub('', part['content'])
-                
-        # Save the schema-safe cleaned array
-        updated_history = json.dumps(cleaned_messages)
+        full_history = result.all_messages_json().decode('utf-8')
 
         try:
             table.put_item(Item={
                 'sessionId': session_id,
-                'history': updated_history
+                'history': full_history
             })
-        except Exception as db_save_err:
-            print(f"DB Save error: {db_save_err}")
+        except Exception as e:
+            print(f"DB Save error: {e}")
 
-        used_search = any(
-            getattr(p, 'part_kind', None) == 'tool-call' and 'duckduckgo' in getattr(p, 'tool_name', '').lower()
-            for msg in result.new_messages()
-            for p in getattr(msg, 'parts', [])
-        )
+        used_kb = False
+        used_search = False
+        for msg in result.new_messages():
+            for p in getattr(msg, 'parts', []):
+                tool_name = (getattr(p, 'tool_name', '') or '').lower()
+                if getattr(p, 'part_kind', None) == 'tool-call':
+                    if 'resume' in tool_name:
+                        used_kb = True
+                    elif 'web' in tool_name:
+                        used_search = True
 
         return {
             'statusCode': 200,
             'headers': headers,
             'body': json.dumps({
-                'answer': str(result.output), 
-                'used_search': used_search, 
-                'debug_kb_chunks': relevant_chunks
+                'answer': str(result.output),
+                'used_kb': used_kb,
+                'used_search': used_search,
             })
         }
         
     except Exception as e:
         print(f"Lambda crash: {str(e)}")
+        logfire.error(f"Lambda crash: {str(e)}")
+        logfire.force_flush()
         return {
             'statusCode': 500,
             'headers': headers,
